@@ -1,0 +1,347 @@
+#!/usr/bin/env python2
+# -*- coding: utf-8 -*-
+"""
+Credit Card Fraud Detection: Classifictaion- Random Forest, SVC, Tree Machine Learning Algorithm
+Created on Wed Aug  1 12:52:05 2018
+
+@author: shwetasaloni
+
+"""
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sb
+import scipy as sp
+from sklearn.model_selection import train_test_split
+
+df=pd.read_csv('/Users/shwetasaloni/Downloads/creditcard.csv')
+df.shape
+
+df.info()
+df.isnull().any().any() # Returns True is there is any null value in dataset, Here it is False.
+df.sample(5)
+
+df.head()
+df.Class.value_counts() #same as below
+#df.groupby(['Class']).size() #  0    284315
+                             # 1       492
+df.Class.value_counts(normalize=True) #  0    0.998273 - % of real transaction
+                                      #  1    0.001727 - % of fraud transaction
+                                      
+
+df.Time .describe()
+df.loc[:, 'Time']=df.Time/3600 # Converting time in hr
+df.Time.max()/24 # the time of last transaction, it seems the transaction occurs over a two-day periods.
+
+
+
+
+
+
+# Data Partition
+X=df.drop(labels='Class', axis = 1)
+y= df.loc[:, 'Class']
+#del df
+
+
+X_train, X_test, y_train, y_test=train_test_split(X, y, test_size=0.3, random_state=1, stratify = y)
+
+#del X, y
+
+X_train.shape
+X_test.shape
+y_train.shape
+y_test.shape
+
+#prevent view warning
+X_train.is_copy = False
+X_test.is_copy = False
+
+
+#Exploratory Data Analysis
+
+X_train.Time.describe()
+
+# Plot transaction time
+plt.figure(figsize=(12,4), dpi=80)
+sb.distplot(X_train.Time, bins=48, kde=False)
+plt.xlim([0,50])
+plt.xticks(np.arange(0,54,6))
+plt.xlabel('Time After First Transaction (hr)')
+plt.ylabel('Count')
+plt.title('Transaction Times')
+# the two heaps shows that maximum transactions have happened during the night time.
+
+df.Amount.describe()# right Skewed
+X_train.Amount.describe()#right Skewed 
+# plot histogra to confirm
+
+plt.figure(figsize=(12,4), dpi=80)
+sb.distplot(df.Amount, bins=300, kde=False)
+plt.xlabel('Amount')
+plt.ylabel('Count')
+plt.title('Transaction Amount')
+
+plt.figure(figsize=(12,4), dpi=80)
+sb.boxplot(x=df.Amount)
+plt.title('Transaction Amount')
+# as i can there is no outlier in the left but, right has many outliers and that's why Amount is right skewed. 
+# let's measure the skewness factor.
+df.Amount.skew()# 16.977724453761024, which is very high and has strong Right skewness. 
+# so i will use power transform to remove the skewness and bring the Amount feature to normal distribution.
+# by using Box-Cox Scipy, but some of the amount is zero, so we need to make it non zero by shifting them to right by small amount
+
+df.loc[:,'Amount']= df.Amount + 1e-9 # Shift all amounts by 1e-9
+#Perform the Box-Cox transform
+
+df.loc[:,'Amount'], maxlog, (min_ci, max_ci) = sp.stats.boxcox(df['Amount'], alpha=0.01)
+
+#The maximum likelihood estimate of  λ in the Box-Cox transform:
+
+maxlog # 1339224055592226 
+
+#The 99% confidence interval for  λ
+(min_ci, max_ci) #(0.13262159785859096, 0.13523057944348163)
+
+# Now, let's plot teh newly skewed Amount
+
+plt.figure(figsize=(12,4), dpi=80)
+sb.distplot(df.Amount, bins=300, kde=False)
+plt.xlabel('Transformed Amount')
+plt.ylabel('Count')
+plt.title('Transaction Amounts (Box-Cox Transformed)')
+
+# distribution appears to be bimodal, suggesting a divide between "small" and "large" purchases. 
+
+
+#Now let's check the descriptive stats of the transformed amounts
+
+df.Amount.describe()
+
+df.Amount.skew() #0.11535790843348852 which is quite less and it's distribution looks good
+
+# let's think of whether Amount and time of the day is actually related to  each other or not. 
+
+sb.jointplot(df['Time'].apply(lambda x: x % 24), df['Amount'], kind='hex', stat_func=None, size=12, xlim=(0,24), ylim=(-7.5,14)).set_axis_labels('Time of Day (hr)','Transformed Amount')
+# Transaction amount have almost similar distribution through out the day However during the morning arount 5-7 AM , amount at 2.5 are common 
+
+# Now going to the PC's 
+
+PCA_vars= ['V%i' % k for k in range(1,29)]
+
+df[PCA_vars].describe()
+#it's tideous to interpret the table so, let's use some visualization
+
+# plotting by mean of the PC's
+plt.figure(figsize=(12,4), dpi=80)
+sb.barplot(x=PCA_vars, y=df[PCA_vars].mean(), color='darkblue')
+plt.xlabel('Column')
+plt.ylabel('Mean')
+plt.title('V1-V28 Means')
+#it's look like the mean of all the PC's are zero
+
+# plot the standard deviation
+plt.figure(figsize=(12,4), dpi=80)
+sb.barplot(x=PCA_vars, y=df[PCA_vars].std(), color='darkblue')
+plt.xlabel('Column')
+plt.ylabel('Standard Deviation')
+plt.title('V1-V28 Standar Deviations')
+#All the PC's has roughly unit variance and it starts from ~0.3 till 1.9
+
+# plot the skewness
+
+plt.figure(figsize=(12,4), dpi=80)
+sb.barplot(x=PCA_vars, y=df[PCA_vars].skew(), color='darkblue')
+plt.xlabel('Column')
+plt.ylabel('Skewness')
+plt.title('V1-V28 Skewness')
+# few PC's are skewed, so lets plot the histogram for those skewed PC's
+
+plt.figure(figsize=(12,4), dpi=80)
+sb.distplot(df['V8'], bins=300, kde=False)
+plt.ylabel('Count')
+plt.title('V8')
+# Histogram is not showing andy Outlier so plot the scatter plot
+
+
+plt.figure(figsize=(12,4), dpi=80)
+sb.boxplot(df['V8'])
+plt.title('V8')
+#There are large number of outliers, which indicates high kurtosis in V8 and i think i should plot the kutosis of each PC's
+# lets take the log scale on Kurtosis
+
+plt.figure(figsize=(12,4), dpi=80)
+plt.yscale('log')
+sb.barplot(x=PCA_vars, y=df[PCA_vars].kurtosis(), color='darkblue')
+plt.xlabel('Column')
+plt.ylabel('Kurtosis')
+plt.title('V1-V28 Kurtoses')
+
+# As many of the PCA variables are heavy-tailed, so let's plot the median
+
+plt.figure(figsize=(12,4), dpi=80)
+sb.barplot(x=PCA_vars, y=df[PCA_vars].median(), color='darkblue')
+plt.xlabel('Column')
+plt.ylabel('Median')
+plt.title('V1-V28 Medians')
+# median also looks zero
+
+# Plot IQR
+
+plt.figure(figsize=(12,4), dpi=80)
+sb.barplot(x=PCA_vars, y=df[PCA_vars].quantile(0.75) - df[PCA_vars].quantile(0.25), color='darkblue')
+plt.xlabel('Column')
+plt.ylabel('IQR')
+plt.title('V1-V28 IQR')
+
+#The IQRs of V1-V28 are on a similar scale as the standard deviations
+
+#Mutual information:
+
+from sklearn.feature_selection import mutual_info_classif
+
+mutual_infos = pd.Series(data= mutual_info_classif(X_train, y_train, discrete_features= False, random_state=1), index=X_train.columns)
+sb.distplot(mutual_infos.sort_values(ascending=False), bins=30, label=X_train)
+mutual_infos.sort_values(ascending=False)
+# the most correleted variables with class is V17, V14, V12, V10, V11, V16
+
+
+# MODEL BUILDING
+
+#LOGISTIC REGRESSION:
+
+from sklearn.linear_model import LogisticRegression
+
+classifier = LogisticRegression(random_state=False)
+classifier.fit(X_train, y_train)
+classifier.score(X_test, y_test) #0.99
+
+y_pred=classifier.predict(X_test)
+
+#CONFUSION MATRIX
+from sklearn.metrics import confusion_matrix
+df_confusion=confusion_matrix(y_test, y_pred)
+print(df_confusion)
+
+def plot_confusion_matrix(df_confusion, title='Confusion Matrix',cmap=plt.cm.gray_r):
+    plt.matshow(df_confusion, cmap=cmap)
+    plt.title('Confusion Matrix')
+    plt.colorbar()
+    plt.ylabel('Actual')
+    plt.xlabel('Predicted')
+    
+plot_confusion_matrix(df_confusion)
+
+
+#CLASSIFICATION REPORT
+from sklearn.metrics import classification_report
+target_names=['Real', 'Fraud']
+class_report = classification_report(y_test, y_pred, target_names=target_names)
+print(class_report)
+
+#SGD: STOCHASTIC GRADIENT DESCENT 
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import SGDClassifier
+
+pipeline_sgd=Pipeline([
+        ('Scaler', StandardScaler(copy=False)),
+        ('model', SGDClassifier(max_iter=1000, tol = 1e-3, random_state =1, warm_start=True))
+        ])
+
+    
+param_grid_sgd = [{
+    'model__loss': ['log'],
+    'model__penalty': ['l1', 'l2'],
+    'model__alpha': np.logspace(start=-3, stop=3, num=20)
+}, {
+    'model__loss': ['hinge'],
+    'model__alpha': np.logspace(start=-3, stop=3, num=20),
+    'model__class_weight': [None, 'balanced']
+}]
+
+
+
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import make_scorer, matthews_corrcoef
+
+MCC_scorer = make_scorer(matthews_corrcoef)
+grid_sgd = GridSearchCV(estimator=pipeline_sgd, param_grid=param_grid_sgd, scoring=MCC_scorer, n_jobs=-1, pre_dispatch='2*n_jobs', cv=5, verbose=1, return_train_score=False)
+
+
+
+import warnings
+with warnings.catch_warnings(): # Suppress warnings from the matthews_corrcoef function
+    warnings.simplefilter("ignore")
+    grid_sgd.fit(X_train, y_train)
+    
+grid_sgd.best_score_  # 0.796
+
+grid_sgd.best_params_ 
+
+
+# RANDOM FOREST
+
+from sklearn.ensemble import RandomForestClassifier
+
+pipeline_rf = Pipeline([
+    ('model', RandomForestClassifier(n_jobs=-1, random_state=1))
+])
+
+
+param_grid_rf = {'model__n_estimators': [75]}
+
+grid_rf = GridSearchCV(estimator=pipeline_rf, param_grid=param_grid_rf, 
+                       scoring=MCC_scorer, n_jobs=-1, pre_dispatch='2*n_jobs', 
+                       cv=5, verbose=1, return_train_score=False)
+
+
+grid_rf.fit(X_train, y_train)
+
+grid_rf.best_score_
+grid_rf.best_params_ # 75
+
+#EVALUATION OF THE BEST MODEL
+
+from sklearn.metrics import confusion_matrix, classification_report, matthews_corrcoef, cohen_kappa_score, accuracy_score, average_precision_score, roc_auc_score
+
+def classification_eval(estimator, X_test, y_test):
+    y_pred= estimator.predict(X_test)
+    # Number of decimal places based on number of samples
+    dec = np.int64(np.ceil(np.log10(len(y_test))))
+    
+    print('CONFUSION MATRIX')
+    print(confusion_matrix(y_test, y_pred), '\n')
+    
+    print('CLASSIFICATION REPORT')
+    print(classification_report(y_test, y_pred, digits=dec))
+    
+    print('SCALAR METRICS')
+    format_str = '%%13s = %%.%if' % dec
+    print(format_str % ('MCC', matthews_corrcoef(y_test, y_pred)))
+    if y_test.nunique() <= 2: # Additional metrics for binary classification
+        try:
+            y_score = estimator.predict_proba(X_test)[:,1]
+        except:
+            y_score = estimator.decision_function(X_test)
+        print(format_str % ('AUPRC', average_precision_score(y_test, y_score)))
+        print(format_str % ('AUROC', roc_auc_score(y_test, y_score)))
+    print(format_str % ("Cohen's kappa", cohen_kappa_score(y_test, y_pred)))
+    print(format_str % ('Accuracy', accuracy_score(y_test, y_pred)))
+
+
+classification_eval(grid_rf, X_test, y_test)
+
+#According to the MCC, the random forest performed better on the test set than on the training set.
+#This is probably due to the refit model being trained on the entire training data set, 
+#and not on the smaller CV folds
+
+
+
+
+
+
+
+
+
